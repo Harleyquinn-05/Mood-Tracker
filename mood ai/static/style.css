@@ -1,5 +1,10 @@
 /* style.css — only for Chat Page */
 
+:root {
+  --accent1: #0b4bd6;
+  --accent2: #022146;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -30,6 +35,14 @@ body::before {
   background-repeat: no-repeat;
   z-index: 0;
   pointer-events: none;
+}
+
+/* Custom background class to override default */
+body.custom-bg::before {
+  display: none;
+}
+body.custom-bg {
+  background-color: transparent;
 }
 
 /* ensure app content sits above the image overlay */
@@ -136,6 +149,21 @@ body:not(.dark-mode) .side-nav {
   /* visually emphasize the active/primary link with a soft gradient */
   .side-link.primary{background:linear-gradient(90deg, rgba(11,75,214,0.12), rgba(94,198,255,0.06));color:#071428;font-weight:800}
 
+  .settings-btn {
+    background: rgba(255,255,255,0.05);
+  }
+  .settings-btn:hover {
+    border-color: rgba(7,18,75,0.5);
+    background: rgba(255,255,255,0.1);
+  }
+
+  .music-btn {
+    background: rgba(255,255,255,0.05);
+  }
+  .music-btn:hover {
+    background: rgba(255,255,255,0.1);
+  }
+
   /* Sidebar icon styling for quick visual scanning */
   .side-icon{
     display:inline-block;
@@ -178,13 +206,24 @@ body:not(.dark-mode) .side-nav {
   .input-pill{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.92);border-radius:999px;padding:10px 14px;box-shadow:0 10px 26px rgba(2,6,23,0.12);width:min(760px,100%);max-width:100%}
   .input-pill textarea{flex:1;border:0;outline:none;resize:none;padding:8px 10px;border-radius:8px;font-size:15px;background:transparent;color:#071428;max-height:160px}
   .input-pill textarea::placeholder{color:rgba(7,18,75,0.45)}
-  .send-btn{background:linear-gradient(90deg,var(--accent1),var(--accent2));border:none;color:#ffffff;padding:0;width:40px;height:40px;border-radius:999px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;justify-content:center;transition:transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms cubic-bezier(.2,.8,.2,1), opacity 120ms}
+  .send-btn{background:linear-gradient(90deg,var(--accent1),var(--accent2));border:none;color:#fcfafa;padding:0;width:40px;height:40px;border-radius:999px;cursor:pointer;font-weight:700;display:inline-flex;align-items:center;justify-content:center;transition:transform 180ms cubic-bezier(.2,.8,.2,1), box-shadow 180ms cubic-bezier(.2,.8,.2,1), opacity 120ms}
   .send-btn svg{width:18px;height:18px}
   /* subtle elevation + scale on hover/focus for affordance */
   .send-btn:hover, .send-btn:focus-visible{transform:translateY(-2px) scale(1.04);box-shadow:0 10px 22px rgba(2,6,23,0.18);opacity:1}
   /* slightly press in on active to show responsiveness */
   .send-btn:active{transform:translateY(0) scale(0.98);box-shadow:0 6px 14px rgba(2,6,23,0.12)}
   .send-btn:focus{outline:2px solid rgba(0,0,0,0.06)}
+
+  /* Make send button visible in light mode */
+  body:not(.dark-mode) .send-btn {
+    background: #0b4bd6;
+    color: #ffffff;
+    border: none;
+  }
+  body:not(.dark-mode) .send-btn:hover {
+    background: #022146;
+    color: #ffffff;
+  }
 
   /* spinner while sending */
   .send-btn.sending svg{display:none}
@@ -230,7 +269,7 @@ body:not(.dark-mode) .side-nav {
   .mood-badge.sadness{background:linear-gradient(90deg,#7aa2f7,#9ca3af);color:#ffffff}
   .mood-badge.boredom{background:linear-gradient(90deg,#b4baf8,#e2e8f0);color:#071428}
   .mood-badge.anxiety,.mood-badge.fear,.mood-badge.anger{background:linear-gradient(90deg,#f87171,#feb2b2);color:#ffffff}
-  .time-meta{font-size:0.8rem;color:#999;text-align:right}
+  .time-meta{font-size:0.8rem;color:#0a0a0a;text-align:right}
   .history-card .card-body{margin-bottom:14px}
   .history-card .mood-intensity{font-weight:600;color:#000000;margin-bottom:8px;font-size:0.9rem}
   .history-card .quote{font-style:italic;color:#000000;margin:8px 0;font-size:0.95rem;line-height:1.4}
@@ -261,12 +300,12 @@ body:not(.dark-mode) .side-nav {
 
   .empty-state{padding:28px;text-align:center;color:#666;background:#ffffff;margin:16px 24px;border-radius:12px}
   .pagination{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:16px;margin:24px;padding-top:0;border-top:none}
-  .page-info{color:#666;font-size:0.9rem}
+  .page-info{color:#090808;font-size:0.9rem}
   .page-controls{display:flex;gap:12px;align-items:center;justify-content:center}
-  .page-link{background:#ffffff;color:#0b4bd6;padding:8px 14px;border-radius:8px;text-decoration:none;border:1px solid #e1e8f0;font-weight:600;font-size:0.9rem}
-  .page-link:hover{background:#f0f4f8;transform:translateY(-2px)}
-  .page-link.disabled{color:#ccc;background:#f5f5f5;pointer-events:none;cursor:not-allowed}
-  .current-page{color:#666;font-weight:600;font-size:0.9rem}
+  .page-link{background:#050505;color:#0b4bd6;padding:8px 14px;border-radius:8px;text-decoration:none;border:1px solid #f6f7f9;font-weight:600;font-size:0.9rem}
+  .page-link:hover{background:#f8f9fa;transform:translateY(-2px)}
+  .page-link.disabled{color:#000000;background:#0e0e0e;pointer-events:none;cursor:not-allowed}
+  .current-page{color:#080808;font-weight:600;font-size:0.9rem}
 
 
 .message {
@@ -742,6 +781,8 @@ body.dark-mode {
   background-position: center center;
   background-attachment: fixed;
   background-repeat: no-repeat;
+  --accent1: #60a5fa;
+  --accent2: #3b82f6;
 }
 
 body.dark-mode::before {
@@ -854,6 +895,42 @@ body.dark-mode .side-link:hover {
   color: #e6eef8;
 }
 
+body.dark-mode .settings-btn {
+  background: rgba(255,255,255,0.02);
+}
+body.dark-mode .settings-btn:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+body.dark-mode .music-btn {
+  background: rgba(255,255,255,0.02);
+}
+body.dark-mode .music-btn:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.upload-label {
+  display: inline-block;
+  padding: 8px 12px;
+  background: #0b4bd6;
+  color: #fff;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+.upload-label:hover {
+  background: #022146;
+}
+
+body.dark-mode .upload-label {
+  background: #60a5fa;
+  color: #0f1724;
+}
+body.dark-mode .upload-label:hover {
+  background: #3b82f6;
+}
+
 body.dark-mode .chat-header h2 {
   color: #ffffff;
   font-weight: 800;
@@ -880,4 +957,31 @@ body.dark-mode .brand a {
 body.dark-mode .side-logo {
   color: #ffffff !important;
   font-weight: 800;
+}
+
+/* Camera button styling */
+#cameraMoodBtn {
+  background: linear-gradient(90deg, #28a745, #20c997);
+  border: 2px solid #28a745;
+  color: #ffffff;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  margin-left: 8px;
+}
+
+#cameraMoodBtn:hover:not(:disabled) {
+  background: linear-gradient(90deg, #218838, #1aa085);
+  border-color: #1e7e34;
+  transform: translateY(-1px);
+}
+
+#cameraMoodBtn:disabled {
+  background: #6c757d;
+  border-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
 }

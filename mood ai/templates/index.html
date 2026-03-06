@@ -15,7 +15,7 @@
         <nav>
           <a href="#" class="side-link" onclick="newChat(); return false;"><span class="side-icon">💬</span> New Chat</a>
           <a href="{{ url_for('history') }}" class="side-link"><span class="side-icon">📋</span> History</a>
-          <a href="#" class="side-link" onclick="openSettings(); return false;"><span class="side-icon">⚙️</span> Settings</a>
+          <button type="button" class="side-link settings-btn" onclick="openSettings(); return false;"><span class="side-icon">⚙️</span> Settings</button>
         </nav>
       </aside>
 
@@ -32,11 +32,15 @@
             <div class="input-pill">
               <textarea id="moodInput" rows="1" placeholder="How are you feeling right now?" oninput="autoResize(this)"></textarea>
               <button id="sendBtn" type="button" class="send-btn" aria-label="Send" title="Send (Enter)" onclick="submitMood()">
+                
+
                 <!-- paper-plane icon -->
                 <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
                   <path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
                 </svg>
               </button>
+              <button type="button" id="cameraMoodBtn" title="Loading AI models..." disabled>⏳ Loading AI...</button>
+
             </div>
           </div>
         </div>
@@ -74,6 +78,29 @@
           </div>
         </div>
 
+        <!-- Background Section -->
+        {% if user %}
+        <div class="settings-section">
+          <h3>🎨 Background</h3>
+          <div style="margin-bottom:12px;">
+            <label for="backgroundType">Type:</label>
+            <select id="backgroundType" onchange="changeBackgroundType()" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;margin-top:8px;font-size:14px">
+              <option value="default">Default</option>
+              <option value="color">Solid Color</option>
+              <option value="image">Image</option>
+            </select>
+          </div>
+          <div id="colorPicker" style="display:none;margin-bottom:12px;">
+            <label for="backgroundColor">Color:</label>
+            <input type="color" id="backgroundColor" onchange="changeBackgroundColor()" style="width:100%;padding:8px;border-radius:8px;border:1px solid #ddd;margin-top:8px;">
+          </div>
+          <div id="imageUploader" style="display:none;margin-bottom:12px;">
+            <label for="backgroundImage" class="upload-label">Choose Image</label>
+            <input type="file" id="backgroundImage" accept="image/*" onchange="uploadBackgroundImage()" style="display:none;">
+          </div>
+        </div>
+        {% endif %}
+
         <!-- Logout Section -->
         <div class="settings-section">
           <h3>🚪 Account</h3>
@@ -99,7 +126,9 @@
       </div>
     </div>
   </div>
-  
+
+  </div>
+
 
   <script>
     // Helpers
@@ -658,6 +687,7 @@
       modal.style.display = 'flex';
       {% if user %}
       loadProfiles();
+      loadUserSettings();
       {% endif %}
       loadCurrentUser();
     }
@@ -666,14 +696,6 @@
       const modal = document.getElementById('settingsModal');
       modal.style.display = 'none';
     }
-
-    // Close modal when clicking outside the modal content
-    window.onclick = function(event) {
-      const modal = document.getElementById('settingsModal');
-      if (event.target === modal) {
-        closeSettings();
-      }
-    };
 
     // Load and display current user
     function loadCurrentUser() {
@@ -713,16 +735,47 @@
       window.location.href = `/switch-profile/${userId}`;
     }
 
+    // Load user settings
+    async function loadUserSettings() {
+      try {
+        const resp = await robustGet('/api/settings');
+        if (resp && resp.status === 200) {
+          const settings = await resp.json();
+          
+          // Dark mode
+          const darkModeToggle = document.getElementById('darkModeToggle');
+          darkModeToggle.checked = settings.dark_mode;
+          document.getElementById('darkModeStatus').textContent = settings.dark_mode ? 'On' : 'Off';
+          if (settings.dark_mode) {
+            document.body.classList.add('dark-mode');
+          } else {
+            document.body.classList.remove('dark-mode');
+          }
+          
+          // Background
+          const backgroundType = document.getElementById('backgroundType');
+          backgroundType.value = settings.background_type;
+          changeBackgroundType();
+          
+          if (settings.background_type === 'color') {
+            document.getElementById('backgroundColor').value = settings.background_value;
+            applyBackground(settings.background_type, settings.background_value);
+          } else if (settings.background_type === 'image') {
+            applyBackground(settings.background_type, settings.background_value);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not load user settings', err);
+      }
+    }
+
     // Toggle dark mode
-    function toggleDarkMode() {
+    async function toggleDarkMode() {
       const toggle = document.getElementById('darkModeToggle');
       const status = document.getElementById('darkModeStatus');
       const isDark = toggle.checked;
       
-      // Save to localStorage
-      localStorage.setItem('darkMode', isDark);
-      
-      // Apply dark mode
+      // Apply immediately
       if (isDark) {
         document.body.classList.add('dark-mode');
         status.textContent = 'On';
@@ -730,10 +783,100 @@
         document.body.classList.remove('dark-mode');
         status.textContent = 'Off';
       }
+      
+      // Save to server if logged in
+      {% if user %}
+      try {
+        await robustPost('/api/settings', { dark_mode: isDark });
+      } catch (err) {
+        console.warn('Could not save dark mode setting', err);
+      }
+      {% else %}
+      // Save to localStorage for guests
+      localStorage.setItem('darkMode', isDark);
+      {% endif %}
+    }
+
+    // Change background type
+    function changeBackgroundType() {
+      const type = document.getElementById('backgroundType').value;
+      const colorPicker = document.getElementById('colorPicker');
+      const imageUploader = document.getElementById('imageUploader');
+      
+      colorPicker.style.display = type === 'color' ? 'block' : 'none';
+      imageUploader.style.display = type === 'image' ? 'block' : 'none';
+      
+      if (type === 'default') {
+        applyBackground('default', '');
+      }
+    }
+
+    // Change background color
+    async function changeBackgroundColor() {
+      const color = document.getElementById('backgroundColor').value;
+      applyBackground('color', color);
+      
+      // Save to server
+      try {
+        await robustPost('/api/settings', { background_type: 'color', background_value: color });
+      } catch (err) {
+        console.warn('Could not save background color', err);
+      }
+    }
+
+    // Upload background image
+    async function uploadBackgroundImage() {
+      const fileInput = document.getElementById('backgroundImage');
+      const file = fileInput.files[0];
+      if (!file) return;
+      
+      const formData = new FormData();
+      formData.append('background', file);
+      
+      try {
+        const resp = await fetch('/api/upload-background', {
+          method: 'POST',
+          body: formData
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          applyBackground('image', data.filename);
+        } else {
+          alert('Failed to upload image');
+        }
+      } catch (err) {
+        console.warn('Upload failed', err);
+        alert('Upload failed');
+      }
+    }
+
+    // Apply background
+    function applyBackground(type, value) {
+      const body = document.body;
+      body.classList.remove('custom-bg');
+      body.style.backgroundImage = '';
+      body.style.backgroundColor = '';
+      
+      if (type === 'color') {
+        body.classList.add('custom-bg');
+        body.style.backgroundColor = value;
+      } else if (type === 'image') {
+        body.classList.add('custom-bg');
+        body.style.backgroundImage = `url('/static/uploads/${value}')`;
+        body.style.backgroundSize = 'cover';
+        body.style.backgroundPosition = 'center';
+        body.style.backgroundRepeat = 'no-repeat';
+      } else {
+        // default, remove custom-bg to show default
+      }
     }
 
     // Load dark mode preference on page load
     document.addEventListener('DOMContentLoaded', function() {
+      {% if user %}
+      // Load settings from server
+      loadUserSettings();
+      {% else %}
       const darkModeToggle = document.getElementById('darkModeToggle');
       const isDark = localStorage.getItem('darkMode') === 'true';
       darkModeToggle.checked = isDark;
@@ -742,7 +885,725 @@
         document.body.classList.add('dark-mode');
         document.getElementById('darkModeStatus').textContent = 'On';
       }
+      {% endif %}
     });
   </script>
+
+ <script src="{{ url_for('static', filename='face-api/tf.min.js') }}"></script>
+ <script src="{{ url_for('static', filename='face-api/face-api.min.js') }}"></script>
+
+ <script>
+     // Enhanced Facial Emotion Detection with Real-time Feedback
+     document.addEventListener('DOMContentLoaded', () => {
+    const cameraBtn = document.getElementById('cameraMoodBtn');
+
+    // Load models with better error handling and progress feedback
+    let modelsLoaded = false;
+    const loadModels = async () => {
+      try {
+        console.log('[DEBUG] faceapi object:', typeof faceapi, faceapi);
+        console.log('[DEBUG] tf object:', typeof tf, tf);
+        cameraBtn.innerHTML = '⏳ Loading AI...';
+        cameraBtn.disabled = true;
+
+        // Set TensorFlow.js backend
+        await tf.setBackend('webgl');
+        await tf.ready();
+        console.log('[DEBUG] TensorFlow.js backend set to WebGL');
+
+        console.log('[DEBUG] Starting to load face detection models...');
+
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromUri('/static/face-api'),
+          faceapi.nets.faceExpressionNet.loadFromUri('/static/face-api')
+        ]);
+        // Check if models are loaded
+        if (faceapi.nets.tinyFaceDetector.isLoaded && faceapi.nets.faceExpressionNet.isLoaded) {
+          console.log('[DEBUG] Face detection models loaded successfully');
+        } else {
+          console.error('[DEBUG] One or more face-api models did not report as loaded!');
+        }
+        modelsLoaded = true;
+        cameraBtn.disabled = false;
+        cameraBtn.innerHTML = '📷 Camera (AI Ready)';
+        cameraBtn.title = "Click to detect mood from your face (AI Enhanced)";
+        cameraBtn.dataset.modelsLoaded = 'true';
+      } catch (err) {
+        console.error("[DEBUG] Face model load failed:", err);
+        modelsLoaded = false;
+        cameraBtn.disabled = false;
+        cameraBtn.innerHTML = '📷 Camera';
+        cameraBtn.title = "Click to access camera (basic mode - AI models failed to load)";
+        cameraBtn.dataset.modelsLoaded = 'false';
+      }
+    };
+
+    // Load models on page load
+    loadModels();
+
+    // Enhanced emotion analysis with activity recommendations matching main.py
+    function analyzeEmotions(expressions) {
+        console.log('[DEBUG] analyzeEmotions called with expressions:', expressions);
+
+        const emotionScores = {
+            happy: expressions.happy || 0,
+            sad: expressions.sad || 0,
+            angry: expressions.angry || 0,
+            fearful: expressions.fearful || 0,
+            surprised: expressions.surprised || 0,
+            disgusted: expressions.disgusted || 0,
+            neutral: expressions.neutral || 0
+        };
+
+        console.log('[DEBUG] emotionScores:', emotionScores);
+
+        // Find primary and secondary emotions
+        const sortedEmotions = Object.entries(emotionScores)
+            .sort(([,a], [,b]) => b - a);
+
+        const primaryEmotion = sortedEmotions[0][0];
+        const primaryScore = sortedEmotions[0][1];
+        const secondaryEmotion = sortedEmotions[1][0];
+        const secondaryScore = sortedEmotions[1][1];
+
+        console.log('[DEBUG] Primary emotion:', primaryEmotion, 'Score:', primaryScore);
+        console.log('[DEBUG] Secondary emotion:', secondaryEmotion, 'Score:', secondaryScore);
+
+        // Enhanced emotion detection with combinations for more detailed emotions
+        let detectedEmotion = primaryEmotion;
+        let emotionData;
+
+        console.log('[DEBUG] Checking emotion combinations...');
+
+        // Check for emotion combinations that map to main.py emotions
+        if (primaryEmotion === 'fearful' && secondaryEmotion === 'surprised' && secondaryScore > 0.2) {
+            // Fear + Surprise = Anxiety
+            detectedEmotion = 'anxiety';
+            emotionData = {
+                emotion: "anxiety",
+                text: "I feel anxious and nervous",
+                intensity: "worry, nervousness, unease",
+                quote: "Anxiety does not empty tomorrow of its sorrows, but only empties today of its strength.",
+                action: "Try grounding techniques and focus on the present moment.",
+                game: "breathing",
+                activities: ['breathing', 'diary']
+            };
+            console.log('[DEBUG] Detected anxiety from fear + surprise');
+        } else if (primaryEmotion === 'sad' && secondaryEmotion === 'angry' && secondaryScore > 0.2) {
+            // Sad + Angry = Grief
+            detectedEmotion = 'grief';
+            emotionData = {
+                emotion: "grief",
+                text: "I feel deep sorrow and grief",
+                intensity: "intense sorrow, often from loss",
+                quote: "Grief is the price we pay for love.",
+                action: "Allow yourself to mourn and seek support from loved ones.",
+                game: "diary",
+                activities: ['breathing', 'diary']
+            };
+            console.log('[DEBUG] Detected grief from sad + angry');
+        } else if (primaryEmotion === 'neutral' && (emotionScores.sad > 0.1 || emotionScores.fearful > 0.1)) {
+            // Neutral with slight negative = Worry
+            detectedEmotion = 'worry';
+            emotionData = {
+                emotion: "worry",
+                text: "I feel worried and concerned",
+                intensity: "unease about a problem or outcome",
+                quote: "Worrying does not take away tomorrow's troubles, it takes away today's peace.",
+                action: "Write down your worries and focus on what you can control.",
+                game: "breathing",
+                activities: ['breathing', 'diary']
+            };
+            console.log('[DEBUG] Detected worry from neutral + negative emotions');
+        } else if (primaryEmotion === 'happy' && emotionScores.surprised > 0.3) {
+            // Happy + Surprised = Pride (achievement/accomplishment)
+            detectedEmotion = 'pride';
+            emotionData = {
+                emotion: "pride",
+                text: "I feel proud and accomplished",
+                intensity: "deep satisfaction in achievements",
+                quote: "Be proud of how far you've come.",
+                action: "Celebrate your achievements and encourage others.",
+                game: "mario",
+                activities: ['mario', 'ludo']
+            };
+            console.log('[DEBUG] Detected pride from happy + surprised');
+        } else {
+            // Use the standard emotion mapping
+            console.log('[DEBUG] Using standard emotion mapping for:', primaryEmotion);
+            const emotionMapping = {
+                happy: {
+                    emotion: "happiness",
+                    text: "I feel happy and joyful",
+                    intensity: "joy, contentment, satisfaction",
+                    quote: "Happiness is best when shared!",
+                    action: "Celebrate your joy—share it with someone or do something you love.",
+                    game: "mario",
+                    activities: ['mario', 'ludo']
+                },
+                sad: {
+                    emotion: "sadness",
+                    text: "I feel sad and down",
+                    intensity: "disappointment, sorrow, or hopelessness",
+                    quote: "It's okay to feel down. Brighter days are ahead.",
+                    action: "Talk to a friend or write down your feelings.",
+                    game: "diary",
+                    activities: ['breathing', 'diary']
+                },
+                angry: {
+                    emotion: "anger",
+                    text: "I feel angry and frustrated",
+                    intensity: "frustration, irritation, or rage",
+                    quote: "Anger is one letter short of danger. Take a deep breath.",
+                    action: "Step away from the situation and do some deep breathing.",
+                    game: "breathing",
+                    activities: ['breathing', 'mario']
+                },
+                fearful: {
+                    emotion: "fear",
+                    text: "I feel fearful and anxious",
+                    intensity: "worry, nervousness, or terror",
+                    quote: "Courage is not the absence of fear, but the triumph over it.",
+                    action: "Take deep breaths and remind yourself of your strengths.",
+                    game: "breathing",
+                    activities: ['breathing', 'diary']
+                },
+                surprised: {
+                    emotion: "surprise",
+                    text: "I feel surprised and excited",
+                    intensity: "unexpected, positive or negative",
+                    quote: "Life is full of surprises. Embrace the unexpected.",
+                    action: "Pause and process the new information before reacting.",
+                    game: "diary",
+                    activities: ['mario', 'ludo']
+                },
+                disgusted: {
+                    emotion: "disgust",
+                    text: "I feel disgusted and uncomfortable",
+                    intensity: "strong aversion or revulsion",
+                    quote: "Disgust can be a signal to protect yourself.",
+                    action: "Distance yourself from the source and focus on something pleasant.",
+                    game: "diary",
+                    activities: ['breathing', 'todo']
+                },
+                neutral: {
+                    emotion: "anxiety",
+                    text: "I feel calm and balanced",
+                    intensity: "worry, nervousness, unease",
+                    quote: "Anxiety does not empty tomorrow of its sorrows, but only empties today of its strength.",
+                    action: "Try grounding techniques and focus on the present moment.",
+                    game: "breathing",
+                    activities: ['todo', 'diary']
+                }
+            };
+            emotionData = emotionMapping[primaryEmotion];
+        }
+
+        // Add secondary emotion context if significant
+        let emotionText = emotionData.text;
+        if (secondaryScore > 0.3) {
+            emotionText += ` with some ${secondaryEmotion} feelings`;
+        }
+
+        const result = {
+            text: emotionText,
+            primaryEmotion: detectedEmotion,
+            secondaryEmotion,
+            emotion: emotionData.emotion,
+            intensity: emotionData.intensity,
+            quote: emotionData.quote,
+            action: emotionData.action,
+            game: emotionData.game,
+            recommendedActivities: emotionData.activities,
+            confidence: primaryScore
+        };
+
+        console.log('[DEBUG] analyzeEmotions result:', result);
+        return result;
+    }
+
+    // Enhanced function to send camera mood message with activity recommendations
+    async function sendCameraMoodMessage(moodText, emotionAnalysis = null) {
+        const messages = document.getElementById('responseBox');
+
+        // Append user message
+        const userNode = document.createElement('div');
+        userNode.className = 'message user';
+        const now = new Date();
+        userNode.innerHTML = `<div class="text">📷 ${escapeHtml(moodText)}</div><div class="meta" title="${now.toLocaleString()}">${relativeTime(now)}</div>`;
+        messages.appendChild(userNode);
+        messages.scrollTop = messages.scrollHeight;
+
+        // Show typing indicator
+        const typingNode = document.createElement('div');
+        typingNode.className = 'message bot typing';
+        typingNode.innerHTML = `<div class="typing-dots"><span></span><span></span></div>`;
+        messages.appendChild(typingNode);
+        messages.scrollTop = messages.scrollHeight;
+
+        // Use emotion analysis data directly instead of backend call
+        if (emotionAnalysis) {
+            console.log('[DEBUG] sendCameraMoodMessage called with emotionAnalysis:', emotionAnalysis);
+
+            // Simulate processing delay
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            // remove typing indicator
+            typingNode.remove();
+
+            const botNode = document.createElement('div');
+            botNode.className = 'message bot';
+
+            // Create response using emotion analysis data
+            let bodyHtml = `<div class="text"><strong>Mood:</strong> ${escapeHtml(emotionAnalysis.emotion)} (${escapeHtml(String(emotionAnalysis.intensity))})<br><em>"${escapeHtml(emotionAnalysis.quote)}"</em><br><strong>Action:</strong> ${escapeHtml(emotionAnalysis.action)}</div>`;
+
+            console.log('[DEBUG] Generated bodyHtml:', bodyHtml);
+
+            // add interactive game buttons based on detected emotion
+            if (emotionAnalysis.game === 'breathing') {
+                bodyHtml += `<div class="breathing-embed"><button class="glow-btn" onclick="openBreathing()">Start Breathing Exercise</button></div>`;
+            } else if (emotionAnalysis.game === 'ludo') {
+                bodyHtml += `<div class="ludo-embed"><button class="glow-btn" onclick="openLudo()">Play Ludo</button></div>`;
+            } else if (emotionAnalysis.game === 'mario') {
+                bodyHtml += `<div class="mario-embed"><button class="glow-btn" onclick="openMario()">Play Game</button></div>`;
+            } else if (emotionAnalysis.game === 'todo') {
+                bodyHtml += `<div class="todo-embed"><button class="glow-btn" onclick="openTodo()">Open Todo</button></div>`;
+            } else if (emotionAnalysis.game === 'diary') {
+                bodyHtml += `<div class="diary-embed"><button class="glow-btn" onclick="openDiary()">Open Diary</button></div>`;
+            }
+
+            // Add emotion-based activity recommendations
+            if (emotionAnalysis.recommendedActivities) {
+                bodyHtml += `<div class="emotion-recommendations" style="margin-top: 15px; padding: 10px; background: rgba(29, 185, 84, 0.1); border-radius: 8px; border-left: 3px solid #1db954;">
+                    <strong style="color: #1db954;">🎯 Recommended for your ${emotionAnalysis.primaryEmotion} mood:</strong><br>`;
+
+                emotionAnalysis.recommendedActivities.forEach(activity => {
+                    const activityNames = {
+                        breathing: 'Breathing Exercise',
+                        ludo: 'Ludo Game',
+                        mario: 'Mario Game',
+                        todo: 'Todo List',
+                        diary: 'Diary'
+                    };
+
+                    const activityFunctions = {
+                        breathing: 'openBreathing()',
+                        ludo: 'openLudo()',
+                        mario: 'openMario()',
+                        todo: 'openTodo()',
+                        diary: 'openDiary()'
+                    };
+
+                    if (activityNames[activity]) {
+                        bodyHtml += `<button class="glow-btn" style="margin: 5px; font-size: 12px;" onclick="${activityFunctions[activity]}">${activityNames[activity]}</button>`;
+                    }
+                });
+
+                bodyHtml += `</div>`;
+            }
+
+            const nowBot = new Date();
+            botNode.innerHTML = bodyHtml + `<div class="meta" title="${nowBot.toLocaleString()}">${relativeTime(nowBot)}</div>`;
+            messages.appendChild(botNode);
+            messages.scrollTop = messages.scrollHeight;
+
+            if (emotionAnalysis.game === 'breathing') setupBreathingGame();
+        } else {
+            // Fallback to backend call if no emotion analysis provided
+            try {
+                const resp = await robustPost('/api/mood', { mood: moodText }, { retries: 3, timeout: 8000 });
+                let data = null;
+                try { data = await resp.json(); } catch (parseErr) {
+                    const text = await resp.text().catch(() => 'Server returned an unexpected response.');
+                    throw new Error(text || 'Invalid JSON from server');
+                }
+
+                // remove typing indicator
+                typingNode.remove();
+
+                const botNode = document.createElement('div');
+                botNode.className = 'message bot';
+
+                if (resp.ok && data && data.status === 'success') {
+                    let bodyHtml = `<div class="text"><strong>Mood:</strong> ${escapeHtml(data.emotion)} (${escapeHtml(String(data.intensity))})<br><em>"${escapeHtml(data.quote)}"</em><br><strong>Action:</strong> ${escapeHtml(data.action)}</div>`;
+
+                    // add interactive game buttons if present
+                    if (data.game === 'breathing') {
+                        bodyHtml += `<div class="breathing-embed"><button class="glow-btn" onclick="openBreathing()">Start Breathing Exercise</button></div>`;
+                    } else if (data.game === 'ludo') {
+                        bodyHtml += `<div class="ludo-embed"><button class="glow-btn" onclick="openLudo()">Play Ludo</button></div>`;
+                    } else if (data.game === 'mario') {
+                        bodyHtml += `<div class="mario-embed"><button class="glow-btn" onclick="openMario()">Play Game</button></div>`;
+                    } else if (data.game === 'todo') {
+                        bodyHtml += `<div class="todo-embed"><button class="glow-btn" onclick="openTodo()">Open Todo</button></div>`;
+                    } else if (data.game === 'diary') {
+                        bodyHtml += `<div class="diary-embed"><button class="glow-btn" onclick="openDiary()">Open Diary</button></div>`;
+                    }
+
+                    // Add emotion-based activity recommendations if available
+                    if (emotionAnalysis && emotionAnalysis.recommendedActivities) {
+                        bodyHtml += `<div class="emotion-recommendations" style="margin-top: 15px; padding: 10px; background: rgba(29, 185, 84, 0.1); border-radius: 8px; border-left: 3px solid #1db954;">
+                            <strong style="color: #1db954;">🎯 Recommended for your ${emotionAnalysis.primaryEmotion} mood:</strong><br>`;
+
+                        emotionAnalysis.recommendedActivities.forEach(activity => {
+                            const activityNames = {
+                                breathing: 'Breathing Exercise',
+                                ludo: 'Ludo Game',
+                                mario: 'Mario Game',
+                                todo: 'Todo List',
+                                diary: 'Diary'
+                            };
+
+                            const activityFunctions = {
+                                breathing: 'openBreathing()',
+                                ludo: 'openLudo()',
+                                mario: 'openMario()',
+                                todo: 'openTodo()',
+                                diary: 'openDiary()'
+                            };
+
+                            if (activityNames[activity]) {
+                                bodyHtml += `<button class="glow-btn" style="margin: 5px; font-size: 12px;" onclick="${activityFunctions[activity]}">${activityNames[activity]}</button>`;
+                            }
+                        });
+
+                        bodyHtml += `</div>`;
+                    }
+
+                    const nowBot = new Date();
+                    botNode.innerHTML = bodyHtml + `<div class="meta" title="${nowBot.toLocaleString()}">${relativeTime(nowBot)}</div>`;
+                    messages.appendChild(botNode);
+                    messages.scrollTop = messages.scrollHeight;
+
+                    if (data.game === 'breathing') setupBreathingGame();
+                } else {
+                    const errText = (data && (data.quote || data.action || data.message)) || `Server error (${resp.status}). Please try again.`;
+                    const encoded = encodeURIComponent(moodText);
+                    const nowErr = new Date();
+                    botNode.innerHTML = `<div class="text">${escapeHtml(errText)}</div><div class="actions"><button class="glow-btn retry-btn" onclick="retryMessage(this)" data-mood="${encoded}">Retry</button></div><div class="meta" title="${nowErr.toLocaleString()}">${relativeTime(nowErr)}</div>`;
+                    messages.appendChild(botNode);
+                    messages.scrollTop = messages.scrollHeight;
+                }
+
+            } catch (err) {
+                // remove typing indicator if present
+                try { typingNode.remove(); } catch (e) {}
+                const botNode = document.createElement('div');
+                botNode.className = 'message bot';
+                const msg = (err && err.message) ? err.message : 'Network error. Please try again.';
+                const encoded = encodeURIComponent(moodText);
+                const nowErr = new Date();
+                botNode.innerHTML = `<div class="text">${escapeHtml(msg)}<br><small>If this persists, check your network or try again later.</small></div><div class="actions"><button class="glow-btn retry-btn" onclick="retryMessage(this)" data-mood="${encoded}">Retry</button></div><div class="meta" title="${nowErr.toLocaleString()}">${relativeTime(nowErr)}</div>`;
+                messages.appendChild(botNode);
+                messages.scrollTop = messages.scrollHeight;
+                console.error('Camera mood detection error:', err);
+            }
+        }
+    }
+
+    cameraBtn.addEventListener('click', async () => {
+
+        // First check if faceapi is loaded
+        if (typeof faceapi === 'undefined' || !faceapi || typeof faceapi.nets === 'undefined') {
+          alert('[DEBUG] Face API not loaded! Please refresh the page.');
+          console.error('[DEBUG] faceapi object:', faceapi);
+          return;
+        }
+        if (!faceapi.nets.tinyFaceDetector.isLoaded || !faceapi.nets.faceExpressionNet.isLoaded) {
+          alert('[DEBUG] Face API models not loaded!');
+          console.error('[DEBUG] Model loaded states:', faceapi.nets.tinyFaceDetector.isLoaded, faceapi.nets.faceExpressionNet.isLoaded);
+          return;
+        }
+
+        cameraBtn.disabled = true;
+        cameraBtn.innerHTML = '🔍 Analyzing...';
+
+        const modelsLoaded = cameraBtn.dataset.modelsLoaded === 'true';
+
+        if (!modelsLoaded) {
+            alert('AI models are still loading. Please wait for the button to show "📷 Camera (AI Ready)" before clicking.');
+            cameraBtn.disabled = false;
+            cameraBtn.innerHTML = '⏳ Loading AI...';
+            return;
+        }
+
+        // Enhanced AI-powered emotion detection
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+          const video = document.getElementById('faceVideo');
+          video.srcObject = stream;
+
+          // Enhanced video display with better positioning
+          video.style.display = 'block';
+          video.style.position = 'fixed';
+          video.style.top = '50%';
+          video.style.left = '50%';
+          video.style.transform = 'translate(-50%, -50%)';
+          video.style.zIndex = '9999';
+          video.style.border = '3px solid #28a745';
+          video.style.borderRadius = '15px';
+          video.style.boxShadow = '0 0 20px rgba(40, 167, 69, 0.3)';
+          video.style.maxWidth = '400px';
+
+          // Create real-time feedback overlay
+          const feedbackDiv = document.createElement('div');
+          feedbackDiv.id = 'emotionFeedback';
+          feedbackDiv.style.cssText = `
+            position: fixed;
+            top: 60%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 10000;
+            text-align: center;
+          `;
+          document.body.appendChild(feedbackDiv);
+
+          // Ensure video is ready
+          await video.play();
+
+          let bestDetection = null;
+          let maxConfidence = 0;
+
+          // Analyze multiple frames for better accuracy
+          for (let i = 0; i < 10; i++) {
+            feedbackDiv.textContent = `Analyzing... ${i + 1}/10`;
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            try {
+              const detection = await faceapi
+                .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 }))
+                .withFaceExpressions();
+
+              if (detection && detection.expressions) {
+                const confidence = Math.max(...Object.values(detection.expressions));
+                if (confidence > maxConfidence) {
+                  maxConfidence = confidence;
+                  bestDetection = detection;
+                }
+              }
+            } catch (err) {
+              console.log('Detection attempt failed:', err);
+            }
+          }
+
+          // Clean up
+          stream.getTracks().forEach(track => track.stop());
+          video.style.display = 'none';
+          video.srcObject = null;
+          document.body.removeChild(feedbackDiv);
+
+          if (bestDetection && bestDetection.expressions) {
+            console.log('Best detection found:', bestDetection);
+            console.log('Expressions:', bestDetection.expressions);
+            const emotionAnalysis = analyzeEmotions(bestDetection.expressions);
+
+            // Log detailed analysis for debugging
+            console.log('Emotion Analysis:', emotionAnalysis);
+            console.log('Raw expressions:', bestDetection.expressions);
+
+            // Show detected emotions in alert for testing
+            const emotions = Object.entries(bestDetection.expressions)
+              .sort(([,a], [,b]) => b - a)
+              .slice(0, 3)
+              .map(([emotion, score]) => `${emotion}: ${(score * 100).toFixed(1)}%`)
+              .join('\n');
+            alert(`Detected Emotions:\n${emotions}\n\nAnalysis: ${emotionAnalysis.text}\n\nEmotion: ${emotionAnalysis.emotion}\nQuote: ${emotionAnalysis.quote}`);
+
+            await sendCameraMoodMessage(emotionAnalysis.text, emotionAnalysis);
+          } else {
+            console.log('No face detection found after 10 attempts');
+            alert("No face detected clearly. Please ensure:\n• Good lighting\n• Face centered in frame\n• No obstructions\n• Look directly at camera");
+          }
+
+          cameraBtn.disabled = false;
+          cameraBtn.innerHTML = '📷 Camera';
+        } catch (err) {
+          alert("Camera access denied or not available. Please check your camera permissions.");
+          cameraBtn.disabled = false;
+          cameraBtn.innerHTML = '📷 Camera';
+          console.error('Camera access error:', err);
+        }
+    });
+
+    // --- Music Modal Functions ---
+    function openMusic() {
+      const modal = document.getElementById('musicModal');
+      modal.style.display = 'flex';
+    }
+
+    function closeMusic() {
+      const modal = document.getElementById('musicModal');
+      modal.style.display = 'none';
+    }
+
+    async function searchMusic() {
+      const query = document.getElementById('musicSearch').value.trim();
+      if (!query) {
+        alert('Please enter a search term.');
+        return;
+      }
+
+      const resultsDiv = document.getElementById('musicResults');
+      resultsDiv.style.display = 'block';
+      resultsDiv.innerHTML = '<h4>Searching...</h4>';
+
+      try {
+        // Mock search results - in a real app, this would call Spotify API
+        const mockResults = [
+          { title: 'Blinding Lights', artist: 'The Weeknd', album: 'After Hours', image: '🎵' },
+          { title: 'Watermelon Sugar', artist: 'Harry Styles', album: 'Fine Line', image: '🎸' },
+          { title: query + ' Remix', artist: 'Various Artists', album: 'Remixes', image: '🎧' },
+          { title: 'Happy Song', artist: 'Artist 1', album: 'Happy Album', image: '🎼' }
+        ];
+
+        resultsDiv.innerHTML = '<h4>Search Results</h4>' + mockResults.map(song =>
+          `<div class="song-result" onclick="playSong('${song.title}', '${song.artist}')">
+            <div class="recent-image">${song.image}</div>
+            <div class="song-info">
+              <p class="song-title">${song.title}</p>
+              <p class="song-artist">${song.artist} • ${song.album}</p>
+            </div>
+            <button class="play-btn" onclick="playSong('${song.title}', '${song.artist}'); event.stopPropagation();">▶️</button>
+          </div>`
+        ).join('');
+      } catch (error) {
+        resultsDiv.innerHTML = '<p>Error searching music.</p>';
+      }
+    }
+
+    async function detectEmotionForMusic() {
+      const btn = event.target;
+      const originalText = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="camera-icon">📷</span> Detecting...';
+
+      const resultsDiv = document.getElementById('emotionMusicResults');
+      resultsDiv.innerHTML = '<p style="color: #b3b3b3;">Analyzing your mood...</p>';
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const video = document.getElementById('faceVideo');
+        video.srcObject = stream;
+        video.style.display = 'block';
+        video.style.position = 'fixed';
+        video.style.top = '50%';
+        video.style.left = '50%';
+        video.style.transform = 'translate(-50%, -50%)';
+        video.style.zIndex = '9999';
+        video.style.border = '2px solid #1db954';
+        video.style.borderRadius = '10px';
+
+        video.onloadedmetadata = async () => {
+          await new Promise(resolve => setTimeout(resolve, 3000));
+
+          const detection = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceExpressions();
+
+          stream.getTracks().forEach(track => track.stop());
+          video.style.display = 'none';
+          video.srcObject = null;
+
+          if (detection && detection.expressions) {
+            const expr = detection.expressions;
+            const bestEmotion = Object.keys(expr).reduce((a, b) =>
+              expr[a] > expr[b] ? a : b);
+
+            const emotionPlaylists = {
+              happy: {
+                name: 'Happy Hits',
+                description: 'Upbeat songs to keep the good vibes going',
+                songs: ['Happy - Pharrell Williams', 'Can\'t Stop the Feeling! - Justin Timberlake', 'Uptown Funk - Mark Ronson ft. Bruno Mars']
+              },
+              sad: {
+                name: 'Sad Songs',
+                description: 'Songs for when you need a good cry',
+                songs: ['Someone Like You - Adele', 'All I Want - Kodaline', 'Hurt - Johnny Cash']
+              },
+              angry: {
+                name: 'Angry Anthems',
+                description: 'Let it out with these high-energy tracks',
+                songs: ['Break Stuff - Limp Bizkit', 'Killing in the Name - Rage Against the Machine', 'You Give Love a Bad Name - Bon Jovi']
+              },
+              fearful: {
+                name: 'Calm & Peaceful',
+                description: 'Relaxing music to ease your mind',
+                songs: ['Weightless - Marconi Union', 'River Flows in You - Yiruma', 'The Night We Met - Lord Huron']
+              },
+              surprised: {
+                name: 'Exciting Discoveries',
+                description: 'Fun and surprising tracks',
+                songs: ['Shut Up and Dance - Walk the Moon', 'Sugar - Maroon 5', 'Moves Like Jagger - Maroon 5 ft. Christina Aguilera']
+              },
+              disgusted: {
+                name: 'Alternative Vibes',
+                description: 'Unique sounds for different tastes',
+                songs: ['Take Me to Church - Hozier', 'Radioactive - Imagine Dragons', 'Demons - Imagine Dragons']
+              },
+              neutral: {
+                name: 'Chill Mix',
+                description: 'Perfect background music',
+                songs: ['Riptide - Vance Joy', 'Ho Hey - The Lumineers', 'Little Talks - Of Monsters and Men']
+              }
+            };
+
+            const playlist = emotionPlaylists[bestEmotion] || emotionPlaylists.neutral;
+
+            resultsDiv.innerHTML = `
+              <div style="background: #181818; padding: 16px; border-radius: 8px; margin-top: 16px;">
+                <h4 style="color: white; margin: 0 0 8px 0;">🎭 Detected: ${bestEmotion.charAt(0).toUpperCase() + bestEmotion.slice(1)}</h4>
+                <p style="color: #b3b3b3; margin: 0 0 12px 0;">${playlist.description}</p>
+                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+                  <div style="width: 60px; height: 60px; background: linear-gradient(135deg, #1db954, #1ed760); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 24px;">🎵</div>
+                  <div>
+                    <h4 style="color: white; margin: 0; font-size: 18px;">${playlist.name}</h4>
+                    <p style="color: #b3b3b3; margin: 4px 0 0 0; font-size: 12px;">Mood-based playlist</p>
+                  </div>
+                </div>
+                <div style="max-height: 200px; overflow-y: auto;">
+                  ${playlist.songs.map(song => `
+                    <div class="song-result" onclick="playSong('${song.split(' - ')[0]}', '${song.split(' - ')[1]}')" style="padding: 8px 0;">
+                      <div class="recent-image">🎵</div>
+                      <div class="song-info">
+                        <p class="song-title">${song.split(' - ')[0]}</p>
+                        <p class="song-artist">${song.split(' - ')[1]}</p>
+                      </div>
+                      <button class="play-btn" onclick="playSong('${song.split(' - ')[0]}', '${song.split(' - ')[1]}'); event.stopPropagation();" style="width: 24px; height: 24px; font-size: 10px;">▶️</button>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            `;
+          } else {
+            resultsDiv.innerHTML = '<p style="color: #b3b3b3;">No face detected. Please try again with better lighting.</p>';
+          }
+
+          btn.disabled = false;
+          btn.innerHTML = originalText;
+        };
+      } catch (err) {
+        resultsDiv.innerHTML = '<p style="color: #b3b3b3;">Camera access denied or not available.</p>';
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+      }
+    }
+
+    function playPlaylist(playlistName) {
+      alert(`🎵 Now playing: ${playlistName}\n\nThis would start playing the playlist in a real Spotify integration!`);
+    }
+
+    function playSong(songTitle, artist) {
+      alert(`🎵 Now playing: "${songTitle}" by ${artist}\n\nThis would start playing the song in a real Spotify integration!`);
+    }
+});
+ </script>
+
+ <video id="faceVideo" width="320" height="240" autoplay playsinline style="display:none;"></video>
+<canvas id="faceCanvas" width="320" height="240" style="display:none;"></canvas>
+
 </body>
 </html>

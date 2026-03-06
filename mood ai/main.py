@@ -3,6 +3,7 @@ import sqlite3
 import os
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
+from werkzeug.utils import secure_filename
 
 # In-memory storage for moods and responses
 mood_history = []
@@ -44,6 +45,16 @@ def init_db():
             action TEXT,
             game TEXT,
             created_at TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        """)
+        cur.execute("""
+        CREATE TABLE user_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE,
+            dark_mode INTEGER DEFAULT 0,
+            background_type TEXT DEFAULT 'default',
+            background_value TEXT DEFAULT '',
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
         """)
@@ -487,6 +498,88 @@ def switch_profile(user_id):
         return redirect(url_for('index'))
     flash('Profile not found')
     return redirect(url_for('index'))
+
+
+@app.route('/api/settings', methods=['GET', 'POST'])
+def user_settings():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    user_id = session['user_id']
+    conn = get_db()
+    cur = conn.cursor()
+    
+    if request.method == 'GET':
+        cur.execute('SELECT dark_mode, background_type, background_value FROM user_settings WHERE user_id = ?', (user_id,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            return jsonify({
+                'dark_mode': bool(row['dark_mode']),
+                'background_type': row['background_type'],
+                'background_value': row['background_value']
+            })
+        else:
+            return jsonify({
+                'dark_mode': False,
+                'background_type': 'default',
+                'background_value': ''
+            })
+    
+    elif request.method == 'POST':
+        data = request.get_json()
+        dark_mode = 1 if data.get('dark_mode', False) else 0
+        background_type = data.get('background_type', 'default')
+        background_value = data.get('background_value', '')
+        
+        # Upsert settings
+        cur.execute('''
+            INSERT INTO user_settings (user_id, dark_mode, background_type, background_value)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                dark_mode = excluded.dark_mode,
+                background_type = excluded.background_type,
+                background_value = excluded.background_value
+        ''', (user_id, dark_mode, background_type, background_value))
+        conn.commit()
+        conn.close()
+        return jsonify({'status': 'success'})
+
+
+@app.route('/api/upload-background', methods=['POST'])
+def upload_background():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    if 'background' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['background']
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if file:
+        filename = secure_filename(file.filename)
+        # Create uploads directory if not exists
+        upload_dir = os.path.join(app.root_path, 'static', 'uploads')
+        os.makedirs(upload_dir, exist_ok=True)
+        filepath = os.path.join(upload_dir, f"{session['user_id']}_{filename}")
+        file.save(filepath)
+        
+        # Update settings
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO user_settings (user_id, background_type, background_value)
+            VALUES (?, 'image', ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                background_type = 'image',
+                background_value = ?
+        ''', (session['user_id'], filename, filename))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({'status': 'success', 'filename': filename})
 
 
 if __name__ == "__main__":
