@@ -12,6 +12,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret")
 DB_PATH = os.path.join(os.path.dirname(__file__), "app.db")
 
 
+
 def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -22,6 +23,7 @@ def init_db():
     if not os.path.exists(DB_PATH):
         conn = get_db()
         cur = conn.cursor()
+
         cur.execute("""
         CREATE TABLE users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -30,6 +32,7 @@ def init_db():
             password_hash TEXT NOT NULL
         );
         """)
+
         cur.execute("""
         CREATE TABLE moods (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,13 +47,24 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
         """)
+
+        cur.execute("""
+        CREATE TABLE security_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            action TEXT,
+            ip_address TEXT,
+            created_at TEXT
+        );
+        """)
+
         conn.commit()
         conn.close()
 
 
 # ensure DB exists on startup
 init_db()
-
+   
 @app.route("/")
 def index():
     user = None
@@ -93,7 +107,10 @@ def register():
 
 
 @app.route('/login', methods=['GET', 'POST'])
+
+
 def login():
+
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         email = request.form.get('email', '').strip()
@@ -118,6 +135,24 @@ def login():
 
 @app.route('/logout', methods=['GET', 'POST'])
 def logout():
+    user_id = session.get('user_id')
+
+    if user_id:
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        user = cur.fetchone()
+
+        if user:
+            cur.execute(
+                "INSERT INTO security_logs (username, action, ip_address, created_at) VALUES (?, ?, ?, ?)",
+                (user['username'], "LOGOUT", request.remote_addr, datetime.utcnow().isoformat())
+            )
+            conn.commit()
+
+        conn.close()
+
     session.pop('user_id', None)
     flash('Logged out')
     return redirect(url_for('index'))
@@ -455,8 +490,19 @@ def switch_profile(user_id):
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
-    
+    app.run(debug=True, port=5001)
+
+  
+@app.route('/admin/security')
+def security_dashboard():
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM security_logs ORDER BY created_at DESC")
+    logs = cur.fetchall()
+    conn.close()
+    return render_template("security.html", logs=logs)
+
+
 
 # API endpoint to clear chat (new chat button)
 @app.route('/api/clear-chat', methods=['POST'])
