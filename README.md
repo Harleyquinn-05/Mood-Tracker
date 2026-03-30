@@ -156,7 +156,7 @@ Developed by **ayu7714 n Harleyquinn-05** 💻
 BCA Student | Cybersecurity Enthusiast
 
 ---
-
+📌 Note
 ## ⭐ Acknowledgement
 
 This project was built as part of learning **web development + cybersecurity concepts** by combining user experience with real-world security features.
