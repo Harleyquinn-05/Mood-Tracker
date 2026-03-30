@@ -1,6 +1,7 @@
 from flask import Flask, request, render_template, jsonify, session, redirect, url_for, flash
 import sqlite3
 import os
+
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from werkzeug.utils import secure_filename
@@ -55,7 +56,9 @@ def init_db():
             dark_mode INTEGER DEFAULT 0,
             background_type TEXT DEFAULT 'default',
             background_value TEXT DEFAULT '',
+            image TEXT,
             FOREIGN KEY(user_id) REFERENCES users(id)
+            
         );
         """)
 
@@ -118,31 +121,43 @@ def register():
 
 
 @app.route('/login', methods=['GET', 'POST'])
-
-
 def login():
 
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         email = request.form.get('email', '').strip()
         password = request.form.get('password', '').strip()
+
         conn = get_db()
         cur = conn.cursor()
-        # Try to find user by username or email (if email is provided)
+
         if email:
             cur.execute('SELECT id, password_hash FROM users WHERE username = ? OR email = ?', (username, email))
         else:
             cur.execute('SELECT id, password_hash FROM users WHERE username = ?', (username,))
+
         row = cur.fetchone()
         conn.close()
+
         if row and check_password_hash(row['password_hash'], password):
             session['user_id'] = row['id']
             flash('Logged in')
             return redirect(url_for('index'))
+
+        # 👇 FAILED LOGIN LOG
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO security_logs (username, action, ip_address, created_at) VALUES (?, ?, ?, ?)",
+            (username, "FAILED_LOGIN", request.remote_addr, datetime.utcnow().isoformat())
+        )
+        conn.commit()
+        conn.close()
+
         flash('Invalid username or password')
         return redirect(url_for('login'))
-    return render_template('login.html')
 
+    return render_template('login.html')
 
 @app.route('/logout', methods=['GET', 'POST'])
 def logout():
@@ -582,10 +597,61 @@ def upload_background():
         return jsonify({'status': 'success', 'filename': filename})
 
 
-if __name__ == "__main__":
-    app.run(debug=True, port=5001)
+conn = get_db()
+cur = conn.cursor()
 
-  
+try:
+    cur.execute("ALTER TABLE security_logs ADD COLUMN image TEXT")
+    conn.commit()
+    print("Image column added successfully")
+except Exception as e:
+    print("Column may already exist:", e)
+
+conn.close()
+
+if __name__ == "__main__":
+   app.run(host="0.0.0.0", port=5001, debug=True)
+
+
+import base64
+
+@app.route('/capture_suspicious', methods=['POST'])
+def capture_suspicious():
+    data = request.json['image']
+    image_data = data.split(",")[1]
+
+    filename = datetime.now().strftime("%Y%m%d%H%M%S") + ".png"
+
+    folder = os.path.join(app.root_path, "static", "suspicious")
+    os.makedirs(folder, exist_ok=True)
+
+    filepath = os.path.join(folder, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(base64.b64decode(image_data))
+
+    print("Saved image at:", filepath)
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE security_logs
+        SET image = ?
+        WHERE id = (
+            SELECT id FROM security_logs
+            WHERE action = 'FAILED_LOGIN'
+            ORDER BY created_at DESC
+            LIMIT 1
+        )
+    """, (filename,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({"status": "saved"})
+
+
 @app.route('/admin/security')
 def security_dashboard():
     conn = get_db()
@@ -608,7 +674,6 @@ def clear_chat():
         conn = get_db()
         cur = conn.cursor()
         cur.execute('DELETE FROM moods WHERE user_id = ?', (user_id,))
-        conn.commit()
         conn.close()
         return jsonify({'status': 'success', 'message': 'Chat cleared'})
     else:
